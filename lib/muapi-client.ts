@@ -55,8 +55,10 @@ export async function executeMuapiCapability<T = unknown>(
 
     const data = await res.json() as {
       task_id?: string;
+      request_id?: string;
       status?: string;
       result?: T;
+      output?: T;
       items?: T;
       posts?: T;
       articles?: T;
@@ -65,14 +67,17 @@ export async function executeMuapiCapability<T = unknown>(
 
     // If it's an immediate result:
     if (data.result !== undefined) return data.result;
+    if (data.output !== undefined) return data.output;
     if (data.items !== undefined) return data.items as T;
     if (data.posts !== undefined) return data.posts as T;
     if (data.articles !== undefined) return data.articles as T;
     if (data.data !== undefined) return data.data as T;
 
-    // If it's an asynchronous task:
-    if (data.task_id) {
-      return await pollMuapiTask<T>(data.task_id, timeoutMs);
+    // If it's an asynchronous task/prediction:
+    const asyncId = data.request_id || data.task_id;
+    if (asyncId) {
+      console.log(`[muapi-client] Queued ${endpoint} with request_id: ${asyncId}`);
+      return await pollMuapiTask<T>(asyncId, timeoutMs);
     }
 
     return data as unknown as T;
@@ -82,26 +87,51 @@ export async function executeMuapiCapability<T = unknown>(
   }
 }
 
-export async function pollMuapiTask<T>(taskId: string, timeoutMs: number = 25000): Promise<T | null> {
-  const apiKey = cfg('MUAPI_API_KEY');
+export async function pollMuapiTask<T>(taskId: string, timeoutMs: number = 30000): Promise<T | null> {
+  const apiKey = cfg('MUAPI_API_KEY') || process.env.MUAPI_API_KEY;
   if (!apiKey) return null;
 
   const baseUrl = getMuapiBaseUrl().replace(/\/$/, '');
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 2000));
     try {
-      const res = await fetch(`${baseUrl}/tasks/${taskId}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+      // First try standard Muapi prediction polling endpoint
+      let res = await fetch(`${baseUrl}/predictions/${taskId}/result`, {
+        headers: {
+          'x-api-key': apiKey,
+          Authorization: `Bearer ${apiKey}`,
+        },
       });
-      if (!res.ok) continue;
-      const task = await res.json() as MuapiTaskResponse;
-      if (task.status === 'completed') {
-        return (task.result ?? task) as T;
+
+      // If not found, try task endpoint
+      if (res.status === 404) {
+        res = await fetch(`${baseUrl}/tasks/${taskId}`, {
+          headers: {
+            'x-api-key': apiKey,
+            Authorization: `Bearer ${apiKey}`,
+          },
+        });
       }
-      if (task.status === 'failed') {
-        console.warn(`[muapi-client] Task ${taskId} failed:`, task.error);
+
+      if (!res.ok && res.status !== 400) continue;
+
+      const body = await res.json() as {
+        status?: string;
+        output?: unknown;
+        result?: unknown;
+        error?: string;
+        detail?: { status?: string; error?: string; output?: unknown };
+      };
+
+      const status = body.status ?? body.detail?.status;
+      if (status === 'completed') {
+        return (body.output ?? body.result ?? body.detail?.output ?? body) as T;
+      }
+      if (status === 'failed') {
+        const errMsg = body.error ?? body.detail?.error;
+        console.warn(`[muapi-client] Task ${taskId} failed:`, errMsg);
         return null;
       }
     } catch (e) {

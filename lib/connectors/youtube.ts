@@ -31,9 +31,8 @@ export const youtube: Connector = {
       if (muapiResult && Array.isArray(muapiResult) && muapiResult.length > 0) {
         return muapiResult.map((item) => normalizeMuapiMention(item, 'youtube'));
       }
+      return [];
     }
-
-    // 2. Direct YouTube Data API v3 fallback
     const key = cfg('YOUTUBE_API_KEY');
     if (!key) return [];
     const out: RawMention[] = [];

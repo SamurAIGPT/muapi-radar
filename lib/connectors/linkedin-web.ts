@@ -36,6 +36,7 @@ export const linkedinWeb: Connector = {
       if (muapiResult && Array.isArray(muapiResult) && muapiResult.length > 0) {
         return muapiResult.map((item) => normalizeMuapiMention(item, 'linkedin_web'));
       }
+      return [];
     }
 
     // 2. Direct Tavily search index fallback

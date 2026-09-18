@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { marked } from 'marked';
 import { Flame, UploadCloud } from 'lucide-react';
-import { dashboardData, getCurrentProject } from '@/lib/data';
+import { dashboardData, getCurrentProject, getLastIngestAt } from '@/lib/data';
 import { getTrends } from '@/lib/trends';
 import { PageHeader, KpiCard, MentionCard, EmptyState, fmtCompact, fmtNum } from '@/components/ui';
 import { getT } from '@/lib/i18n';
 import { BriefFreshness } from '@/components/brief-freshness';
 import { VolumeChart, SentimentPie } from '@/components/charts';
+import { MuapiStatusBanner } from '@/components/muapi-status-banner';
 
 export default async function DashboardPage() {
   const t = await getT();
@@ -14,7 +15,9 @@ export default async function DashboardPage() {
   if (!project) return <EmptyState message={t('dash.noProject', 'No project configured. Go to Projects to create one.')} />;
   let [data, trends] = await Promise.all([dashboardData(project.id), getTrends(project.id)]);
 
-  if (Number(data.kpi.total7) === 0) {
+  const lastIngest = await getLastIngestAt();
+  const shouldAutoSync = Number(data.kpi.total7) === 0 && (!lastIngest || Date.now() - lastIngest.getTime() > 5 * 60_000);
+  if (shouldAutoSync) {
     try {
       const { runPipeline } = await import('@/lib/pipeline');
       await runPipeline({ projectId: project.id, full: true });
@@ -35,6 +38,12 @@ export default async function DashboardPage() {
         subtitle={project.mode === 'upload'
           ? 'Imported data — analyzed with the full Radar engine'
           : `Monitoring: ${project.keywords.join(', ')}`}
+      />
+
+      <MuapiStatusBanner
+        status={data.muapiStatus}
+        isMuapiActive={data.isMuapiActive}
+        itemCount={Number(data.kpi.total7)}
       />
 
       {project.mode === 'upload' && (
@@ -117,9 +126,30 @@ export default async function DashboardPage() {
             <Link href="/listening" className="text-xs text-sky-400 hover:text-sky-300">see all →</Link>
           </div>
           <div className="flex flex-col gap-2">
-            {data.latest.length
-              ? data.latest.map((m) => <MentionCard key={m.id} m={m} />)
-              : <EmptyState message={t('dash.noMentions', 'No mentions collected yet.')} />}
+            {data.latest.length ? (
+              data.latest.map((m) => <MentionCard key={m.id} m={m} />)
+            ) : (
+              <div className="panel p-6 text-center space-y-3 border-slate-800/80 bg-slate-900/30">
+                <div className="inline-flex size-10 items-center justify-center rounded-full bg-slate-800/80 text-slate-400">
+                  <Flame className="size-5 text-slate-500" />
+                </div>
+                <p className="text-sm font-medium text-slate-200">
+                  {data.isMuapiActive ? 'No real mentions returned from Muapi API yet' : t('dash.noMentions', 'No mentions collected yet.')}
+                </p>
+                {data.isMuapiActive && data.muapiStatus?.error && (
+                  <div className="mx-auto max-w-lg rounded-lg border border-rose-500/30 bg-rose-950/40 p-3 text-left">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-rose-400">Upstream Response Reason</p>
+                    <p className="mt-1 font-mono text-xs text-rose-200">{data.muapiStatus.error}</p>
+                    {data.muapiStatus.requestId && (
+                      <p className="mt-1 text-[11px] text-slate-400">Request ID: <code className="text-sky-300 font-mono">{data.muapiStatus.requestId}</code></p>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Strict Real-Time Mode is active: all fallback scrapers, RSS simulations, and synthetic datasets are disabled.
+                </p>
+              </div>
+            )}
           </div>
         </section>
         <section>

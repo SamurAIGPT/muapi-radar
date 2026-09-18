@@ -50,6 +50,7 @@ export const facebook: Connector = {
       if (muapiResult && Array.isArray(muapiResult) && muapiResult.length > 0) {
         return muapiResult.map((item) => normalizeMuapiMention(item, 'facebook'));
       }
+      return [];
     }
 
     // 2. Direct Graph API fallback

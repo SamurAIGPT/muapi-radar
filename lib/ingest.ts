@@ -8,6 +8,7 @@ import { setRssFeeds } from '@/lib/connectors/rss';
 import { hydrateConnectorCredentials } from '@/lib/connector-credentials';
 import type { RawMention, ListeningQuery } from '@/lib/connectors/types';
 import { compilePlan, matchesQuery, queriesMatching, validatePlan, type CompiledQuery } from '@/lib/query-plan';
+import { isMuapiConfigured } from '@/lib/muapi-client';
 
 export type SourceStatus = Record<string, {
   ok: boolean; count: number; error?: string; at: string;
@@ -150,9 +151,16 @@ export async function ingestProject(projectOrId: typeof projects.$inferSelect | 
   setRssFeeds(project.rssFeeds ?? []);
   await hydrateConnectorCredentials();
 
+  const MUAPI_SUPPORTED_SOURCES = new Set(['googlenews', 'youtube', 'instagram', 'tiktok']);
+
   let enabled = CONNECTORS
     .filter((c) => c.enabled())
     .filter((c) => (project.mode === 'talkwalker' ? c.id === 'talkwalker' : c.id !== 'talkwalker'));
+
+  // Strict Muapi mode: only query Muapi endpoints. No fallback scrapers or public feeds.
+  if (isMuapiConfigured()) {
+    enabled = enabled.filter((c) => MUAPI_SUPPORTED_SOURCES.has(c.id));
+  }
 
   if (project.mode === 'talkwalker') {
     const budget = talkwalkerDailyBudget();

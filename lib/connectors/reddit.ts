@@ -53,9 +53,8 @@ export const reddit: Connector = {
       if (muapiResult && Array.isArray(muapiResult) && muapiResult.length > 0) {
         return muapiResult.map((item) => normalizeMuapiMention(item, 'reddit'));
       }
+      return [];
     }
-
-    // 2. Direct Reddit OAuth
     const token = await getToken();
     const base = token ? 'https://oauth.reddit.com' : 'https://www.reddit.com';
     const url = `${base}/search${token ? '' : '.json'}?q=${encodeURIComponent(query)}&sort=new&t=week&limit=100&raw_json=1`;

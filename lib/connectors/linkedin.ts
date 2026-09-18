@@ -24,6 +24,7 @@ export const linkedin: Connector = {
       if (muapiResult && Array.isArray(muapiResult) && muapiResult.length > 0) {
         return muapiResult.map((item) => normalizeMuapiMention(item, 'linkedin'));
       }
+      return [];
     }
 
     // 2. Direct LinkedIn Community Management API fallback

@@ -48,9 +48,8 @@ export const tiktok: Connector = {
       if (muapiResult && Array.isArray(muapiResult) && muapiResult.length > 0) {
         return muapiResult.map((item) => normalizeMuapiMention(item, 'tiktok'));
       }
+      return [];
     }
-
-    // 2. Direct TikTok Research API fallback
     const key = cfg('TIKTOK_CLIENT_KEY');
     if (!key) return [];
     const token = await getToken();

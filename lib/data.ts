@@ -6,6 +6,7 @@ import {
 } from '@/lib/db/schema';
 import { NEWS_SOURCES } from '@/lib/connectors';
 import { getCurrentUser, isAdmin } from '@/lib/auth';
+import { getLatestMuapiStatus, isMuapiConfigured } from '@/lib/muapi-client';
 
 /** Normalizza un valore sentiment (incl. legacy IT) a una delle 3 etichette EN. */
 export function normSentimentValue(s: string | null): 'positive' | 'neutral' | 'negative' {
@@ -101,6 +102,8 @@ export async function dashboardData(projectId: number) {
     topTopics: topTopics.rows as { topic: string; n: number }[],
     latest,
     latestBrief: latestBrief ?? null,
+    muapiStatus: await getLatestMuapiStatus(),
+    isMuapiActive: isMuapiConfigured(),
   };
 }
 

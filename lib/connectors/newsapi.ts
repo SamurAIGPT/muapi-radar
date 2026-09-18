@@ -31,6 +31,7 @@ export const newsapi: Connector = {
       if (muapiResult && Array.isArray(muapiResult) && muapiResult.length > 0) {
         return muapiResult.map((item) => normalizeMuapiMention(item, 'newsapi'));
       }
+      return [];
     }
 
     // 2. Direct NewsAPI fallback

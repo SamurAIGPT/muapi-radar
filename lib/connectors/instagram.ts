@@ -54,9 +54,8 @@ export const instagram: Connector = {
       if (muapiResult && Array.isArray(muapiResult) && muapiResult.length > 0) {
         return muapiResult.map((item) => normalizeMuapiMention(item, 'instagram'));
       }
+      return [];
     }
-
-    // 2. Direct Meta Graph API fallback
     const tags = [...new Set(
       q.anyTerms.map((k) => k.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase()).filter((t) => t.length >= 3),
     )].slice(0, 3);

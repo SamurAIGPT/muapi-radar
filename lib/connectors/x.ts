@@ -28,9 +28,8 @@ export const xTwitter: Connector = {
       if (muapiResult && Array.isArray(muapiResult) && muapiResult.length > 0) {
         return muapiResult.map((item) => normalizeMuapiMention(item, 'x'));
       }
+      return [];
     }
-
-    // 2. Direct X API v2 fallback
     const token = cfg('X_BEARER_TOKEN');
     if (!token) return [];
     const query = `${bool} -is:retweet`;

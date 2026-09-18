@@ -65,26 +65,20 @@ export const googleNews: Connector = {
   tier: 'free',
   enabled: () => true,
   async fetchMentions(q) {
-    // 1. If Muapi is configured, attempt high-fidelity reputation.news_search
     if (isMuapiConfigured()) {
       const qStr = booleanQuery(q);
       const muapiResult = await executeMuapiCapability<Record<string, unknown>[]>('/news-search', {
         query: qStr,
-        languages: q.languages,
-        countries: q.countries,
+        language: q.languages?.[0],
+        country: q.countries?.[0],
       });
       if (muapiResult && Array.isArray(muapiResult) && muapiResult.length > 0) {
         return muapiResult.map((item) => normalizeMuapiMention(item, 'googlenews'));
       }
+      // Strictly no fallback data when Muapi is configured
+      return [];
     }
 
-    // 2. Fallback to direct Google News RSS with when:90d filter
-    const query = `${booleanQuery(q)} when:90d`.trim();
-    if (query === 'when:90d') return [];
-    const locales: { loc: Locale; lang?: string }[] = q.countries.length
-      ? q.countries.filter((c) => BY_COUNTRY[c]).slice(0, 6).map((c) => ({ loc: BY_COUNTRY[c] }))
-      : q.languages.filter((l) => BY_LANGUAGE[l]).slice(0, 6).map((l) => ({ loc: BY_LANGUAGE[l], lang: l }));
-    if (locales.length === 0) locales.push({ loc: BY_LANGUAGE.en, lang: 'en' });
-    return collect(locales.map(({ loc, lang }) => fetchFeed(query, loc, lang)));
+    return [];
   },
 };

@@ -9,6 +9,8 @@ import { sourceLabel } from '@/lib/source-label';
 import { SearchBox } from '@/components/search-box';
 import { TranslateBar } from '@/components/translate-bar';
 import { translateMentions, TRANSLATE_LANGS, type Translated } from '@/lib/translate';
+import { MuapiStatusBanner } from '@/components/muapi-status-banner';
+import { getLatestMuapiStatus, isMuapiConfigured } from '@/lib/muapi-client';
 
 const SENTIMENTS = ['positive', 'neutral', 'negative'];
 const PERIODS = [
@@ -70,10 +72,14 @@ export default async function ListeningPage({ searchParams }: {
     query: sp.query,
   };
   const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  const muapiStatus = await getLatestMuapiStatus();
+  const isMuapiActive = isMuapiConfigured();
 
   return (
     <>
       <PageHeader title={t('page.listening.title', 'Listening')} subtitle={`${fmtNum(data.total)} ${t('listening.found', 'mentions found')}`} />
+
+      <MuapiStatusBanner status={muapiStatus} isMuapiActive={isMuapiActive} itemCount={data.total} />
 
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
         <div className="mr-2"><SearchBox /></div>
@@ -158,12 +164,30 @@ export default async function ListeningPage({ searchParams }: {
       )}
 
       <div className="flex flex-col gap-2">
-        {data.rows.length
-          ? data.rows.map((m) => (
-              <MentionCard key={m.id} m={m} translated={translations.get(m.id)}
-                highlight={semanticTerms ?? (sp.q ? [sp.q] : [])} keywords={project.keywords} />
-            ))
-          : <EmptyState message={t('listening.noMentions', 'No mentions with these filters.')} />}
+        {data.rows.length ? (
+          data.rows.map((m) => (
+            <MentionCard key={m.id} m={m} translated={translations.get(m.id)}
+              highlight={semanticTerms ?? (sp.q ? [sp.q] : [])} keywords={project.keywords} />
+          ))
+        ) : (
+          <div className="panel p-8 text-center space-y-3 border-slate-800/80 bg-slate-900/30">
+            <p className="text-sm font-medium text-slate-200">
+              {isMuapiActive ? 'No real mentions returned from Muapi API' : t('listening.noMentions', 'No mentions with these filters.')}
+            </p>
+            {isMuapiActive && muapiStatus?.error && (
+              <div className="mx-auto max-w-lg rounded-lg border border-rose-500/30 bg-rose-950/40 p-3 text-left">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-rose-400">Upstream Response Reason</p>
+                <p className="mt-1 font-mono text-xs text-rose-200">{muapiStatus.error}</p>
+                {muapiStatus.requestId && (
+                  <p className="mt-1 text-[11px] text-slate-400">Request ID: <code className="text-sky-300 font-mono">{muapiStatus.requestId}</code></p>
+                )}
+              </div>
+            )}
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Strict Real-Time Mode is active: all fallback scrapers, RSS simulations, and synthetic datasets are disabled.
+            </p>
+          </div>
+        )}
       </div>
 
       {totalPages > 1 && (

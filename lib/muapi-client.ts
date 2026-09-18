@@ -8,6 +8,33 @@ export interface MuapiTaskResponse {
   error?: string;
 }
 
+export interface MuapiStatusInfo {
+  lastCalledAt: string;
+  endpoint: string;
+  requestId?: string;
+  status: 'ok' | 'failed' | 'queued' | 'empty';
+  error?: string;
+  detail?: string;
+}
+
+export async function getLatestMuapiStatus(): Promise<MuapiStatusInfo | null> {
+  try {
+    const { getMeta } = await import('@/lib/db');
+    return (await getMeta<MuapiStatusInfo>('muapi_last_status')) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function recordMuapiStatus(info: MuapiStatusInfo) {
+  try {
+    const { setMeta } = await import('@/lib/db');
+    await setMeta('muapi_last_status', info);
+  } catch (e) {
+    console.warn('[muapi-client] Failed recording status:', e);
+  }
+}
+
 export function isMuapiConfigured(): boolean {
   const key = cfg('MUAPI_API_KEY') || process.env.MUAPI_API_KEY;
   return Boolean(key && key.trim().length > 0);
@@ -49,7 +76,14 @@ export async function executeMuapiCapability<T = unknown>(
     });
 
     if (!res.ok) {
-      console.warn(`[muapi-client] ${endpoint} returned status ${res.status}`);
+      const errText = await res.text().catch(() => '');
+      console.warn(`[muapi-client] ${endpoint} returned status ${res.status}: ${errText.slice(0, 200)}`);
+      await recordMuapiStatus({
+        lastCalledAt: new Date().toISOString(),
+        endpoint,
+        status: 'failed',
+        error: `HTTP ${res.status}: ${errText.slice(0, 200) || res.statusText}`,
+      });
       return null;
     }
 
@@ -77,17 +111,35 @@ export async function executeMuapiCapability<T = unknown>(
     const asyncId = data.request_id || data.task_id;
     if (asyncId) {
       console.log(`[muapi-client] Queued ${endpoint} with request_id: ${asyncId}`);
-      return await pollMuapiTask<T>(asyncId, timeoutMs);
+      await recordMuapiStatus({
+        lastCalledAt: new Date().toISOString(),
+        endpoint,
+        requestId: asyncId,
+        status: 'queued',
+        detail: `Queued on Muapi (${asyncId}). Waiting for worker execution...`,
+      });
+      return await pollMuapiTask<T>(asyncId, timeoutMs, endpoint);
     }
 
+    await recordMuapiStatus({
+      lastCalledAt: new Date().toISOString(),
+      endpoint,
+      status: 'ok',
+    });
     return data as unknown as T;
   } catch (err) {
     console.error(`[muapi-client] Failed calling ${endpoint}:`, err);
+    await recordMuapiStatus({
+      lastCalledAt: new Date().toISOString(),
+      endpoint,
+      status: 'failed',
+      error: (err as Error)?.message ?? String(err),
+    });
     return null;
   }
 }
 
-export async function pollMuapiTask<T>(taskId: string, timeoutMs: number = 30000): Promise<T | null> {
+export async function pollMuapiTask<T>(taskId: string, timeoutMs: number = 30000, endpoint: string = '/predictions'): Promise<T | null> {
   const apiKey = cfg('MUAPI_API_KEY') || process.env.MUAPI_API_KEY;
   if (!apiKey) return null;
 
@@ -127,11 +179,31 @@ export async function pollMuapiTask<T>(taskId: string, timeoutMs: number = 30000
 
       const status = body.status ?? body.detail?.status;
       if (status === 'completed') {
-        return (body.output ?? body.result ?? body.detail?.output ?? body) as T;
+        const rawRes = (body.output ?? body.result ?? body.detail?.output ?? body) as T;
+        const count = Array.isArray(rawRes)
+          ? rawRes.length
+          : (rawRes && typeof rawRes === 'object' && Array.isArray((rawRes as Record<string, unknown>).items))
+            ? ((rawRes as Record<string, unknown>).items as unknown[]).length
+            : 0;
+        await recordMuapiStatus({
+          lastCalledAt: new Date().toISOString(),
+          endpoint,
+          requestId: taskId,
+          status: count > 0 ? 'ok' : 'empty',
+          detail: count > 0 ? `${count} mentions retrieved` : '0 mentions matched the current query keywords',
+        });
+        return rawRes;
       }
       if (status === 'failed') {
-        const errMsg = body.error ?? body.detail?.error;
+        const errMsg = body.error ?? body.detail?.error ?? 'Unknown error';
         console.warn(`[muapi-client] Task ${taskId} failed:`, errMsg);
+        await recordMuapiStatus({
+          lastCalledAt: new Date().toISOString(),
+          endpoint,
+          requestId: taskId,
+          status: 'failed',
+          error: String(errMsg),
+        });
         return null;
       }
     } catch (e) {
@@ -140,6 +212,13 @@ export async function pollMuapiTask<T>(taskId: string, timeoutMs: number = 30000
   }
 
   console.warn(`[muapi-client] Task ${taskId} timed out after ${timeoutMs}ms`);
+  await recordMuapiStatus({
+    lastCalledAt: new Date().toISOString(),
+    endpoint,
+    requestId: taskId,
+    status: 'failed',
+    error: `Task timed out after ${timeoutMs / 1000}s on Muapi worker`,
+  });
   return null;
 }
 

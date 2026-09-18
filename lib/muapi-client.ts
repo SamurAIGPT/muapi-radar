@@ -1,0 +1,142 @@
+import { cfg } from '@/lib/connector-config';
+import type { RawMention } from '@/lib/connectors/types';
+
+export interface MuapiTaskResponse {
+  task_id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  result?: unknown;
+  error?: string;
+}
+
+export function isMuapiConfigured(): boolean {
+  const key = cfg('MUAPI_API_KEY') || process.env.MUAPI_API_KEY;
+  return Boolean(key && key.trim().length > 0);
+}
+
+export function getMuapiBaseUrl(): string {
+  return cfg('MUAPI_BASE_URL') || process.env.MUAPI_BASE_URL || 'https://api.muapi.ai/api/v1';
+}
+
+/**
+ * Execute capability through Muapi API.
+ * Supports synchronous response or async task polling.
+ */
+export async function executeMuapiCapability<T = unknown>(
+  endpoint: string,
+  payload: Record<string, unknown>,
+  timeoutMs: number = 25000,
+): Promise<T | null> {
+  const apiKey = cfg('MUAPI_API_KEY') || process.env.MUAPI_API_KEY;
+  if (!apiKey) return null;
+
+  const rawBase = getMuapiBaseUrl().replace(/\/$/, '');
+  const cleanEp = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  // If base doesn't include /api/v1 and endpoint doesn't either, insert /api/v1
+  const url = (!rawBase.includes('/api/v1') && !cleanEp.startsWith('/api/v1'))
+    ? `${rawBase}/api/v1${cleanEp}`
+    : `${rawBase}${cleanEp}`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      console.warn(`[muapi-client] ${endpoint} returned status ${res.status}`);
+      return null;
+    }
+
+    const data = await res.json() as {
+      task_id?: string;
+      status?: string;
+      result?: T;
+      items?: T;
+      posts?: T;
+      articles?: T;
+      data?: T;
+    };
+
+    // If it's an immediate result:
+    if (data.result !== undefined) return data.result;
+    if (data.items !== undefined) return data.items as T;
+    if (data.posts !== undefined) return data.posts as T;
+    if (data.articles !== undefined) return data.articles as T;
+    if (data.data !== undefined) return data.data as T;
+
+    // If it's an asynchronous task:
+    if (data.task_id) {
+      return await pollMuapiTask<T>(data.task_id, timeoutMs);
+    }
+
+    return data as unknown as T;
+  } catch (err) {
+    console.error(`[muapi-client] Failed calling ${endpoint}:`, err);
+    return null;
+  }
+}
+
+export async function pollMuapiTask<T>(taskId: string, timeoutMs: number = 25000): Promise<T | null> {
+  const apiKey = cfg('MUAPI_API_KEY');
+  if (!apiKey) return null;
+
+  const baseUrl = getMuapiBaseUrl().replace(/\/$/, '');
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const res = await fetch(`${baseUrl}/tasks/${taskId}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!res.ok) continue;
+      const task = await res.json() as MuapiTaskResponse;
+      if (task.status === 'completed') {
+        return (task.result ?? task) as T;
+      }
+      if (task.status === 'failed') {
+        console.warn(`[muapi-client] Task ${taskId} failed:`, task.error);
+        return null;
+      }
+    } catch (e) {
+      console.warn(`[muapi-client] Polling error for task ${taskId}:`, e);
+    }
+  }
+
+  console.warn(`[muapi-client] Task ${taskId} timed out after ${timeoutMs}ms`);
+  return null;
+}
+
+/**
+ * Normalizes generic Muapi social/news items into RawMention contract.
+ */
+export function normalizeMuapiMention(item: Record<string, unknown>, fallbackSource: string): RawMention {
+  const externalId = String(item.id || item.external_id || item.post_id || item.url || Math.random().toString(36).slice(2));
+  const publishedAt = item.published_at || item.created_at || item.timestamp
+    ? new Date(String(item.published_at || item.created_at || item.timestamp))
+    : new Date();
+
+  return {
+    source: String(item.platform || item.source || fallbackSource),
+    externalId,
+    url: typeof item.url === 'string' ? item.url : undefined,
+    title: typeof item.title === 'string' ? item.title : undefined,
+    content: String(item.content || item.text || item.caption || item.snippet || item.title || ''),
+    author: typeof item.author === 'string' ? item.author : typeof item.author_name === 'string' ? item.author_name : undefined,
+    authorHandle: typeof item.author_handle === 'string' ? item.author_handle : typeof item.username === 'string' ? item.username : undefined,
+    community: typeof item.community === 'string' ? item.community : typeof item.subreddit === 'string' ? item.subreddit : undefined,
+    publishedAt,
+    language: typeof item.language === 'string' ? item.language : undefined,
+    country: typeof item.country === 'string' ? item.country : undefined,
+    engagement: item.engagement as RawMention['engagement'],
+    reach: typeof item.reach === 'number' ? item.reach : undefined,
+  };
+}
+
+export const dispatchMuapiTask = executeMuapiCapability;

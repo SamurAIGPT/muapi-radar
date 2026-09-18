@@ -1,4 +1,4 @@
-import type { DB } from './index';
+import type { DB } from '@/lib/db';
 import * as schema from './schema';
 
 /**

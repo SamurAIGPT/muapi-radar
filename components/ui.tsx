@@ -169,7 +169,7 @@ export function MentionCard({ m, translated, highlight, keywords }: {
             🌐 translated{m.language ? ` · orig. ${m.language.toUpperCase()}` : ''}
           </span>
         ) : m.language && <span className="uppercase">{m.language}</span>}
-        <span>{fmtDate(m.publishedAt)}</span>
+        <span suppressHydrationWarning>{fmtDate(m.publishedAt)}</span>
         {m.community && <span className="text-slate-400">{m.community}</span>}
       </div>
       <MentionBody id={m.id} lang={m.language} url={m.url} title={title ?? null} content={content ?? null}

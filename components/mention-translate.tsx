@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Languages, Loader2 } from 'lucide-react';
 
 const LANG_LABEL: Record<string, string> = {
@@ -8,11 +8,11 @@ const LANG_LABEL: Record<string, string> = {
   de: 'Deutsch', pt: 'Português', zh: '中文', ar: 'العربية',
 };
 
-/** Lingua di lettura preferita: cookie condiviso col futuro selettore di lingua. */
+/** Lingua di lettura preferita: cookie condiviso col selettore di lingua. */
 function readTarget(): string {
-  if (typeof document === 'undefined') return 'it';
+  if (typeof document === 'undefined') return 'en';
   const m = document.cookie.match(/(?:^|;\s*)sr_locale=([a-z]{2})/);
-  return m?.[1] ?? 'it';
+  return m?.[1] ?? 'en';
 }
 
 type Tr = { title: string | null; content: string };
@@ -32,7 +32,13 @@ export function MentionBody({ id, lang, url, title, content, allowTranslate }: {
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [showTr, setShowTr] = useState(false);
   const [tr, setTr] = useState<Tr | null>(null);
-  const target = readTarget();
+  const [mounted, setMounted] = useState(false);
+  const [target, setTarget] = useState('en');
+
+  useEffect(() => {
+    setTarget(readTarget());
+    setMounted(true);
+  }, []);
 
   const on = showTr && tr !== null;
   const dTitle = on ? (tr!.title ?? title) : title;
@@ -56,7 +62,7 @@ export function MentionBody({ id, lang, url, title, content, allowTranslate }: {
   }
 
   const label = LANG_LABEL[target] ?? target.toUpperCase();
-  const showBtn = allowTranslate && (!lang || lang !== target);
+  const showBtn = mounted && allowTranslate && (!lang || lang !== target);
 
   return (
     <>
